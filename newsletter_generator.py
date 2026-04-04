@@ -2,8 +2,6 @@ import feedparser
 import requests
 import os
 from datetime import datetime, timedelta
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
 import json
 import re
 from urllib.parse import quote
@@ -11,8 +9,7 @@ from urllib.parse import quote
 # Configuration
 TOPICS = ["artificial intelligence", "product management", "business strategy"]
 RECIPIENT_EMAIL = "mohinachadha.mac@gmail.com"
-SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")
-NEWS_API_KEY = os.environ.get("NEWS_API_KEY")  # Optional but recommended
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 
 # High-quality RSS feeds for trending content
 RSS_FEEDS = {
@@ -75,8 +72,9 @@ def fetch_rss_articles():
     return articles
 
 def fetch_newsapi_articles():
-    """Fetch from NewsAPI for better trending data (requires free API key)"""
-    if not NEWS_API_KEY:
+    """Fetch from NewsAPI for better trending data (optional)"""
+    news_api_key = os.environ.get("NEWS_API_KEY")
+    if not news_api_key:
         print("  ⓘ NewsAPI disabled (no API key). Set NEWS_API_KEY env variable for better results.")
         return []
     
@@ -86,7 +84,7 @@ def fetch_newsapi_articles():
     for topic in TOPICS:
         try:
             url = f"https://newsapi.org/v2/everything?q={quote(topic)}&sortBy=popularity&language=en&pageSize=5"
-            headers = {"Authorization": f"Bearer {NEWS_API_KEY}"}
+            headers = {"Authorization": f"Bearer {news_api_key}"}
             response = requests.get(url, headers=headers, timeout=10)
             
             if response.status_code == 200:
@@ -332,21 +330,37 @@ def create_email_html(articles):
     """
     return html
 
-def send_email(recipient_email, subject, html_content):
-    """Send email via SendGrid"""
+def send_email_resend(recipient_email, subject, html_content):
+    """Send email via Resend API"""
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        import requests
         
-        message = Mail(
-            from_email=Email("newsletter@trending-reads.com", "📰 Trending Newsletter"),
-            to_emails=To(recipient_email),
-            subject=subject,
-            html_content=Content("text/html", html_content)
+        headers = {
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "from": "Newsletter <onboarding@resend.dev>",
+            "to": recipient_email,
+            "subject": subject,
+            "html": html_content
+        }
+        
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers=headers,
+            json=payload
         )
         
-        response = sg.send(message)
-        print(f"\n✅ Email sent successfully! Status: {response.status_code}")
-        return True
+        if response.status_code == 200:
+            print(f"\n✅ Email sent successfully via Resend!")
+            return True
+        else:
+            print(f"\n❌ Error sending email: {response.status_code}")
+            print(response.text)
+            return False
+            
     except Exception as e:
         print(f"\n❌ Error sending email: {e}")
         return False
@@ -366,7 +380,7 @@ def main():
     # RSS feeds
     all_articles.extend(fetch_rss_articles())
     
-    # NewsAPI (optional but recommended)
+    # NewsAPI (optional)
     all_articles.extend(fetch_newsapi_articles())
     
     # HackerNews real-time trending
@@ -399,9 +413,9 @@ def main():
     print("\n🎨 Creating email HTML...")
     html_content = create_email_html(selected)
     
-    print("📧 Sending email via SendGrid...")
+    print("📧 Sending email via Resend...")
     subject = f"Trending Today - {datetime.now().strftime('%B %d, %Y')} | AI • PM • Strategy"
-    send_email(RECIPIENT_EMAIL, subject, html_content)
+    send_email_resend(RECIPIENT_EMAIL, subject, html_content)
     
     print("\n" + "="*60)
     print("✅ Newsletter generation complete!")
